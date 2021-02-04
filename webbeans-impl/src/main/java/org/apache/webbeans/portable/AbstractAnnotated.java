@@ -19,19 +19,21 @@
 package org.apache.webbeans.portable;
 
 import java.lang.annotation.Annotation;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Stream;
+import java.util.logging.Level;
 
 import javax.enterprise.inject.spi.Annotated;
 
 import org.apache.webbeans.config.WebBeansContext;
+import org.apache.webbeans.logger.WebBeansLoggerFacade;
 import org.apache.webbeans.util.Asserts;
 import org.apache.webbeans.util.GenericsUtil;
 
@@ -93,27 +95,36 @@ public abstract class AbstractAnnotated implements Annotated
         {
             return;
         }
-        List<Annotation> repeatables = annotations.stream()
-                .map(a -> {
-                    Class<?> type = a.annotationType();
-                    try
+
+        List<Annotation> repeatables = null;
+        for (Annotation annotation : annotations)
+        {
+            Class<?> type = annotation.annotationType();
+            Optional<Method> repeatableMethod = webBeansContext.getAnnotationManager().getRepeatableMethod(type);
+            if (repeatableMethod.isPresent())
+            {
+                try
+                {
+                    if (repeatables == null)
                     {
-                        Optional<Method> repeatableMethod =
-                                webBeansContext.getAnnotationManager().getRepeatableMethod(type);
-                        if (!repeatableMethod.isPresent())
-                        {
-                            return null;
-                        }
-                        return (Annotation[]) repeatableMethod.orElseThrow(IllegalStateException::new).invoke(a);
+                        repeatables = new ArrayList<>();
                     }
-                    catch (Exception e)
+                    Annotation[] repeatableAnns =
+                        (Annotation[]) repeatableMethod.orElseThrow(IllegalStateException::new).invoke(annotation);
+                    for (Annotation repeatableAnn : repeatableAnns)
                     {
-                        return null;
+                        repeatables.add(repeatableAnn);
                     }
-                }).filter(Objects::nonNull)
-                .flatMap(Stream::of)
-                .collect(toList());
-        if (!repeatables.isEmpty())
+                }
+                catch (IllegalAccessException | InvocationTargetException e)
+                {
+                    WebBeansLoggerFacade.getLogger(AbstractAnnotated.class)
+                            .log(Level.FINER, "Problem while handling repeatable Annotations "
+                                    + annotation.annotationType());
+                }
+            }
+        }
+        if (repeatables != null && !repeatables.isEmpty())
         {
             this.repeatables.addAll(repeatables.stream().map(Annotation::annotationType).collect(toList()));
             this.annotations.addAll(repeatables);

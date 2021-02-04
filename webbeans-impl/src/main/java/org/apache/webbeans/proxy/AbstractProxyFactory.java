@@ -19,9 +19,9 @@
 package org.apache.webbeans.proxy;
 
 import static java.util.stream.Collectors.joining;
-import static org.apache.xbean.asm8.ClassReader.SKIP_CODE;
-import static org.apache.xbean.asm8.ClassReader.SKIP_DEBUG;
-import static org.apache.xbean.asm8.ClassReader.SKIP_FRAMES;
+import static org.apache.xbean.asm9.ClassReader.SKIP_CODE;
+import static org.apache.xbean.asm9.ClassReader.SKIP_DEBUG;
+import static org.apache.xbean.asm9.ClassReader.SKIP_FRAMES;
 
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
@@ -36,12 +36,14 @@ import org.apache.webbeans.exception.ProxyGenerationException;
 import org.apache.webbeans.exception.WebBeansException;
 import org.apache.webbeans.hash.XxHash64;
 import org.apache.webbeans.spi.DefiningClassService;
-import org.apache.xbean.asm8.ClassReader;
-import org.apache.xbean.asm8.ClassWriter;
-import org.apache.xbean.asm8.MethodVisitor;
-import org.apache.xbean.asm8.Opcodes;
-import org.apache.xbean.asm8.Type;
-import org.apache.xbean.asm8.shade.commons.EmptyVisitor;
+import org.apache.xbean.asm9.ClassReader;
+import org.apache.xbean.asm9.ClassWriter;
+import org.apache.xbean.asm9.MethodVisitor;
+import org.apache.xbean.asm9.Opcodes;
+import org.apache.xbean.asm9.Type;
+import org.apache.xbean.asm9.shade.commons.EmptyVisitor;
+
+import javax.enterprise.inject.Vetoed;
 
 /**
  * Base class for all OWB Proxy factories
@@ -247,8 +249,13 @@ public abstract class AbstractProxyFactory
             // xxhash64 has very low collision so for this kind of has it is safe enough
             // and enables to avoid a big concatenation for names
             return Long.toString(Math.abs(XxHash64.apply(Stream.concat(
-                    Stream.of(proxiedMethods).map(Method::toGenericString).sorted(),
-                    Stream.of(notProxiedMethods).map(Method::toGenericString).map(it -> "<NOT>" + it).sorted()
+                    proxiedMethods == null ? Stream.empty() :
+                            Stream.of(proxiedMethods).map(Method::toGenericString).sorted(),
+                    notProxiedMethods == null ? Stream.empty() :
+                            Stream.of(notProxiedMethods)
+                                    .filter(it -> it.getDeclaringClass() != Object.class)
+                                    .map(Method::toGenericString)
+                                    .map(it -> "<NOT>" + it).sorted()
             ).collect(joining("_")))));
         }
         // else unsafe - 1 proxy per class max!
@@ -395,6 +402,9 @@ public abstract class AbstractProxyFactory
 
         cw.visit(findJavaVersion(classToProxy), Opcodes.ACC_PUBLIC + Opcodes.ACC_SUPER + Opcodes.ACC_SYNTHETIC, proxyClassFileName, null, superClassName, interfaceNames);
         cw.visitSource(classFileName + ".java", null);
+
+        // proxies are already available in a native environment when scanning is enabled -> lets skip proxies
+        cw.visitAnnotation(Type.getDescriptor(Vetoed.class), true).visitEnd();
 
         createInstanceVariables(cw, classToProxy, classFileName);
         createSerialisation(cw, proxyClassFileName, classToProxy, classFileName);

@@ -43,6 +43,7 @@ import org.apache.webbeans.container.AnnotatedTypeWrapper;
 import org.apache.webbeans.container.BeanManagerImpl;
 import org.apache.webbeans.container.InjectableBeanManager;
 import org.apache.webbeans.container.InjectionResolver;
+import org.apache.webbeans.context.control.ActivateRequestContextInterceptorBean;
 import org.apache.webbeans.corespi.se.DefaultJndiService;
 import org.apache.webbeans.decorator.DecoratorsManager;
 import org.apache.webbeans.deployment.StereoTypeManager;
@@ -110,6 +111,7 @@ import javax.enterprise.inject.spi.Producer;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.net.URL;
@@ -162,6 +164,10 @@ public class BeansDeployer
 
     private final Map<String, Boolean> packageVetoCache = new HashMap<>();
 
+    protected boolean skipVetoedOnPackages;
+    protected boolean skipNoClassDefFoundTriggers;
+    protected boolean skipValidations;
+
     /**
      * This BdaInfo is used for all manually added annotated types or in case
      * a non-Bda-aware ScannerService got configured.
@@ -183,6 +189,11 @@ public class BeansDeployer
 
         String usage = this.webBeansContext.getOpenWebBeansConfiguration().getProperty(OpenWebBeansConfiguration.USE_EJB_DISCOVERY);
         discoverEjb = Boolean.parseBoolean(usage);
+        skipVetoedOnPackages = Boolean.parseBoolean(this.webBeansContext.getOpenWebBeansConfiguration().getProperty(
+                "org.apache.webbeans.spi.deployer.skipVetoedOnPackages"));
+        skipValidations = Boolean.parseBoolean(this.webBeansContext.getOpenWebBeansConfiguration().getProperty(
+                "org.apache.webbeans.spi.deployer.skipValidations"));
+        skipNoClassDefFoundTriggers = this.webBeansContext.getOpenWebBeansConfiguration().isSkipNoClassDefFoundErrorTriggers();
 
         defaultBeanArchiveInformation = new DefaultBeanArchiveInformation("default");
         defaultBeanArchiveInformation.setBeanDiscoveryMode(BeanDiscoveryMode.ALL);
@@ -224,6 +235,10 @@ public class BeansDeployer
                 webBeansContext.getBeanManagerImpl().addInternalBean(webBeansContext.getWebBeansUtil().getManagerBean());
                 // Register built-in RequestContextController
                 webBeansContext.getBeanManagerImpl().addInternalBean(webBeansContext.getWebBeansUtil().getRequestContextControllerBean());
+                webBeansContext.getInterceptorsManager().addCdiInterceptor(webBeansContext.getWebBeansUtil().getRequestContextInterceptorBean());
+                webBeansContext.getInterceptorsManager().addPriorityClazzInterceptor(
+                        ActivateRequestContextInterceptorBean.InterceptorClass.class,
+                        javax.interceptor.Interceptor.Priority.PLATFORM_BEFORE + 100);
 
                 //Fire Event
                 fireBeforeBeanDiscoveryEvent();
@@ -300,16 +315,67 @@ public class BeansDeployer
 
                 // activate InjectionResolver cache now
                 webBeansContext.getBeanManagerImpl().getInjectionResolver().setStartup(false);
-                
-                validateAlternatives(beanAttributesPerBda);
 
-                validateInjectionPoints();
-                validateDisposeParameters();
+                // drop no more needed memory data
+                webBeansContext.getNotificationManager().afterStart();
 
-                validateDecoratorDecoratedTypes();
-                validateDecoratorGenericTypes();
+                if (!skipValidations)
+                {
+                    validateAlternatives(beanAttributesPerBda);
 
-                validateNames();
+                    validateInjectionPoints();
+                    validateDisposeParameters();
+
+                    validateDecoratorDecoratedTypes();
+                    validateDecoratorGenericTypes();
+
+                    validateNames();
+                }
+                else
+                {
+                    webBeansContext.getBeanManagerImpl().getBeans().forEach(bean -> {
+                        if (BuiltInOwbBean.class.isInstance(bean))
+                        {
+                            Class<?> proxyable = BuiltInOwbBean.class.cast(bean).proxyableType();
+                            if (proxyable != null)
+                            {
+                                AbstractProducer producer = AbstractProducer.class.cast(OwbBean.class.cast(bean).getProducer());
+                                AnnotatedType<?> annotatedType = webBeansContext.getAnnotatedElementFactory()
+                                        .newAnnotatedType(proxyable);
+                                producer.defineInterceptorStack(bean, annotatedType, webBeansContext);
+                            }
+                        }
+                        else if (bean instanceof OwbBean &&
+                                !(bean instanceof Interceptor) &&
+                                !(bean instanceof Decorator))
+                        {
+                            AbstractProducer producer = null;
+                            OwbBean<?> owbBean = (OwbBean<?>) bean;
+                            if (ManagedBean.class.isInstance(bean)) // in this case don't use producer which can be wrapped
+                            {
+                                producer = ManagedBean.class.cast(bean).getOriginalInjectionTarget();
+                            }
+                            if (producer == null && owbBean.getProducer() instanceof AbstractProducer)
+                            {
+                                producer = (AbstractProducer) owbBean.getProducer();
+                            }
+                            if (producer != null)
+                            {
+                                AnnotatedType<?> annotatedType;
+                                if (owbBean instanceof InjectionTargetBean)
+                                {
+                                    annotatedType = ((InjectionTargetBean<?>) owbBean).getAnnotatedType();
+                                }
+                                else
+                                {
+                                    annotatedType = webBeansContext.getAnnotatedElementFactory()
+                                            .newAnnotatedType(owbBean.getReturnType());
+                                }
+                                producer.defineInterceptorStack(owbBean, annotatedType, webBeansContext);
+                            }
+                        }
+                    });
+                }
 
                 if (webBeansContext.getNotificationManager().getObserverMethods().stream()
                         .anyMatch(ObserverMethod::isAsync))
@@ -453,6 +519,10 @@ public class BeansDeployer
                 catch (NoClassDefFoundError ncdfe)
                 {
                     logger.info("Skipping deployment of Class " + beanClass + "due to a NoClassDefFoundError: " + ncdfe.getMessage());
+                }
+                catch (UnsatisfiedLinkError ule)
+                {
+                    logger.info("Skipping deployment of Class " + beanClass + "due to a UnsatisfiedLinkError: " + ule.getMessage());
                 }
             }
 
@@ -610,7 +680,7 @@ public class BeansDeployer
                 if (priority != null)
                 {
                     Class<?> javaClass = annotatedType.getJavaClass();
-                    interceptorsManager.addPriorityClazzInterceptor(javaClass, priority);
+                    interceptorsManager.addPriorityClazzInterceptor(javaClass, priority.value());
                 }
             }
             if (annotatedType.getAnnotation(javax.decorator.Decorator.class) != null)
@@ -1279,10 +1349,11 @@ public class BeansDeployer
         if (classIndex != null)
         {
             AnnotatedElementFactory annotatedElementFactory = webBeansContext.getAnnotatedElementFactory();
-
+            boolean hasPATObserver = webBeansContext.getNotificationManager().hasProcessAnnotatedTypeObservers();
             for (Class<?> implClass : classIndex)
             {
-                if (foundClasses.contains(implClass))
+                if (foundClasses.contains(implClass) || implClass.isAnonymousClass() ||
+                        Modifier.isPrivate(implClass.getModifiers() /* likely inner class */))
                 {
                     // skip this class
                     continue;
@@ -1322,11 +1393,14 @@ public class BeansDeployer
 
                     // trigger a NoClassDefFoundError here, otherwise it would be thrown in observer methods
                     Class<?> javaClass = annotatedType.getJavaClass();
-                    javaClass.getDeclaredMethods();
-                    javaClass.getDeclaredFields();
+                    if (!skipNoClassDefFoundTriggers)
+                    {
+                        javaClass.getDeclaredMethods();
+                        javaClass.getDeclaredFields();
+                    }
 
                     // Fires ProcessAnnotatedType
-                    if (!javaClass.isAnnotation())
+                    if (hasPATObserver && !javaClass.isAnnotation())
                     {
                         GProcessAnnotatedType processAnnotatedEvent = webBeansContext.getWebBeansUtil().fireProcessAnnotatedTypeEvent(annotatedType);
                         if (!processAnnotatedEvent.isVeto())
@@ -1343,6 +1417,10 @@ public class BeansDeployer
                 catch (NoClassDefFoundError ncdfe)
                 {
                     logger.info("Skipping deployment of Class " + implClass + "due to a NoClassDefFoundError: " + ncdfe.getMessage());
+                }
+                catch (UnsatisfiedLinkError ule)
+                {
+                    logger.info("Skipping deployment of Class " + implClass + "due to a UnsatisfiedLinkError: " + ule.getMessage());
                 }
             }
         }
@@ -1363,36 +1441,43 @@ public class BeansDeployer
             return true;
         }
 
-        ClassLoader classLoader = implClass.getClassLoader();
-        if (classLoader == null)
-        {
-            classLoader = BeansDeployer.class.getClassLoader();
-        }
-
         Package pckge = implClass.getPackage();
         if (pckge == null)
         {
             return false;
         }
+
         do
         {
             // yes we cache result with potentially different classloader but this is not portable by spec
             String name = pckge.getName();
+            Boolean packageVetoed = packageVetoCache.get(name);
+            if (packageVetoed == null)
             {
-                Boolean result = packageVetoCache.get(name);
-                if (result != null && result)
+                if (pckge.getAnnotation(Vetoed.class) != null)
                 {
-                    return result;
+                    packageVetoCache.put(pckge.getName(), true);
+                    return true;
+                }
+                else
+                {
+                    packageVetoCache.put(pckge.getName(), false);
                 }
             }
-            if (pckge.getAnnotation(Vetoed.class) != null)
+            else if (packageVetoed)
             {
-                packageVetoCache.put(pckge.getName(), true);
                 return true;
             }
-            else
+
+            if (skipVetoedOnPackages) // we want to avoid loadClass with this property, not cached reflection
             {
-                packageVetoCache.put(pckge.getName(), false);
+                return false;
+            }
+
+            ClassLoader classLoader = implClass.getClassLoader();
+            if (classLoader == null)
+            {
+                classLoader = BeansDeployer.class.getClassLoader();
             }
 
             int idx = name.lastIndexOf('.');
@@ -1400,7 +1485,7 @@ public class BeansDeployer
             {
                 String previousPackage = name.substring(0, idx);
                 Boolean result = packageVetoCache.get(previousPackage);
-                if (result != null && result)
+                if (result != null)
                 {
                     return result;
                 }
@@ -1507,6 +1592,10 @@ public class BeansDeployer
                 {
                     logger.info("Skipping deployment of Class " + key.getJavaClass() + "due to a NoClassDefFoundError: " + ncdfe.getMessage());
                 }
+                catch (UnsatisfiedLinkError ule)
+                {
+                    logger.info("Skipping deployment of Class " + key.getJavaClass() + "due to a UnsatisfiedLinkError: " + ule.getMessage());
+                }
 
                 // if the implClass already gets processed as part of the
                 // standard BDA scanning, then we don't need to 'additionally'
@@ -1551,6 +1640,10 @@ public class BeansDeployer
             catch (NoClassDefFoundError ncdfe)
             {
                 logger.warning("Skipping deployment of Class " + beanClass + " due to a NoClassDefFoundError: " + ncdfe.getMessage());
+            }
+            catch (UnsatisfiedLinkError ule)
+            {
+                logger.info("Skipping deployment of Class " + beanClass + "due to a UnsatisfiedLinkError: " + ule.getMessage());
             }
         }
     }

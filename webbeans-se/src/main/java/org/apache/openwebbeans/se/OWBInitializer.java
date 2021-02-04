@@ -50,7 +50,7 @@ import static java.util.stream.Collectors.toMap;
 
 public class OWBInitializer extends SeContainerInitializer
 {
-    protected final CDISeScannerService scannerService = new CDISeScannerService();
+    protected final CDISeScannerService scannerService = createDefaultScannerService();
     protected final Properties properties = new Properties();
     protected final Map<String, Object> services = new HashMap<>();
     protected final Collection<Extension> extensions = new ArrayList<>();
@@ -62,6 +62,11 @@ public class OWBInitializer extends SeContainerInitializer
         scannerService.loader(loader);
     }
 
+    protected CDISeScannerService createDefaultScannerService()
+    {
+        return new CDISeScannerService();
+    }
+
     @Override
     public SeContainer initialize()
     {
@@ -70,9 +75,18 @@ public class OWBInitializer extends SeContainerInitializer
         thread.setContextClassLoader(loader);
         try
         {
-            services.putIfAbsent(ScannerService.class.getName(), getScannerService());
-            services.putIfAbsent(LoaderService.class.getName(), new CDISeLoaderService(extensions, loader));
-            services.putIfAbsent(BeanArchiveService.class.getName(), new CDISeBeanArchiveService(bai));
+            if (!properties.containsKey(ScannerService.class.getName()))
+            {
+                services.putIfAbsent(ScannerService.class.getName(), getScannerService());
+            }
+            if (!properties.containsKey(LoaderService.class.getName()))
+            {
+                services.putIfAbsent(LoaderService.class.getName(), new CDISeLoaderService(extensions, loader));
+            }
+            if (!properties.containsKey(BeanArchiveService.class.getName()))
+            {
+                services.putIfAbsent(BeanArchiveService.class.getName(), new CDISeBeanArchiveService(bai));
+            }
             addCustomServices(services);
             Map<Class<?>, Object> preparedServices = services.entrySet().stream()
                     .collect(toMap(e ->
@@ -99,7 +113,6 @@ public class OWBInitializer extends SeContainerInitializer
             thread.setContextClassLoader(old);
         }
     }
-
     protected void addCustomServices(final Map<String, Object> services)
     {
         // for children classes
@@ -233,8 +246,8 @@ public class OWBInitializer extends SeContainerInitializer
                 selectAlternativeStereotypes(list(value, this::loadClass).toArray(Class[]::new));
                 break;
             case "openwebbeans.extensions":
-                addExtensions((Class<? extends Extension>[]) list(value, this::loadClass)
-                        .toArray(Class[]::new));
+                final Class<? extends Extension>[] extensions = list(value, this::loadClass).toArray(Class[]::new);
+                addExtensions(extensions);
                 break;
             case "openwebbeans.packages":
                 addPackages(list(value, this::loadPackage).toArray(Package[]::new));

@@ -24,7 +24,7 @@
     <parent>
         <groupId>org.apache.openwebbeans</groupId>
         <artifactId>openwebbeans</artifactId>
-        <version>2.0.18-SNAPSHOT</version>
+        <version>2.0.22-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
@@ -145,7 +145,7 @@
         </dependency>
         <dependency>
             <groupId>org.apache.xbean</groupId>
-            <artifactId>xbean-asm8-shaded</artifactId>
+            <artifactId>xbean-asm9-shaded</artifactId>
         </dependency>
 
 

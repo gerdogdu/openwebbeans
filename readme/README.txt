@@ -1,14 +1,12 @@
 ﻿-------------------------------
-Apache OpenWebBeans 2.0.17
+Apache OpenWebBeans README
 -------------------------------
 
 Welcome!
 
-Thanks for downloading and using OpenWebBeans.
-
-This document is a "Getting Started Guide" for OpenWebBeans.
-
-This document is based on the 2.0.8 release of Apache OpenWebBeans.
+Thanks for downloading and using Apache OpenWebBeans.
+In short OWB
+This document is a "Getting Started Guide" for the latest release OWB.
 
 --------------------------------
 What is Apache OpenWebBeans?
@@ -21,13 +19,17 @@ CDI-2.0 is backward compatible to JSR-346 CDI-1.2 and JSR-299 CDI-1.0.
 Our project's web page can be found at:
 https://openwebbeans.apache.org
 
+We also support the Jakarta EE specifications by providing shaded libraries.
+
+The latest Java Version we support is Java-16.
+The minimum Java Version is Java-8.
 
 
 --------------------------------
-OpenWebBeans 2.0.17 Release Features
+OpenWebBeans 2.0.19 Release Features
 --------------------------------
 
-- The 2.0.8 release supports the following features
+- The latest OWB release supports the following features
 -----------------------------------
 * Managed Beans Support
 * Producer Method Support
@@ -61,6 +63,44 @@ only effective for this very bean archive but for the whole BeanManager in contr
 of the Application. This is especially the case for <alternatives>, <decorators> and
 <interceptors>! An Alternative, Interceptor or Decorator enabled in one BDA is active
 for the whole Application.
+
+
+-------------------------------------------
+Release Notes - OpenWebBeans - Version 2.0.19
+-------------------------------------------
+Bug
+    [OWB-1349] - Respect configuration that is made via BeforeBeanDiscovery#configureQualifier
+
+Task
+    [OWB-1350] - upgrade to xbean-asm9-shaded for Java16 support
+    [OWB-1351] - update various dependencies
+
+
+-------------------------------------------
+Release Notes - OpenWebBeans - Version 2.0.18
+-------------------------------------------
+
+Sub-task
+    [OWB-1346] - prevent scanning of generated proxies
+
+Bug
+    [OWB-1281] - java.lang.UnsatisfiedLinkError in scanner stops application deployment
+    [OWB-1328] - NPE in AbstractMetaDataFactory
+    [OWB-1332] - BeansDeployer#packageVetoCache does not work for negative hits
+    [OWB-1333] - [junit5] @Cdi#onStart not working
+    [OWB-1341] - Event bus: IN_PROGRESS phase should not be sent to transactionService
+    [OWB-1342] - Improve startup performance
+    [OWB-1344] - Ensure creating annotatedtype is thread safe at runtime
+
+Task
+    [OWB-1327] - Run TCK for jakarta packaging
+    [OWB-1329] - Remove openwebbeans-maven module
+    [OWB-1330] - Junit5 parameter resolver companion for @Cdi
+    [OWB-1331] - Create ajunit5 @Scopes extension to be able to control a bit more the started scopes
+    [OWB-1343] - Add a property to skip @Vetoed check on packages
+    [OWB-1345] - Upgrade gradle shadow plugin support to v6.0.0
+    [OWB-1347] - upgrade to apache-parent 23
+
 
 
 -------------------------------------------

@@ -43,6 +43,8 @@ import org.apache.xbean.finder.util.Files;
 
 import javax.decorator.Decorator;
 import javax.interceptor.Interceptor;
+
+import java.io.File;
 import java.io.IOException;
 import java.lang.annotation.Annotation;
 import java.net.URL;
@@ -282,11 +284,18 @@ public abstract class AbstractMetaDataDiscovery implements BdaScannerService
             }
             else
             {
-                // we could check for META-INF/maven/org.apache.geronimo.specs presence there but this is faster
-                final String filename = Files.toFile(url).getName();
-                if (filename.startsWith("geronimo-") && filename.contains("_spec"))
+                if (path.contains("geronimo-"))
                 {
-                    it.remove();
+                    // we could check for META-INF/maven/org.apache.geronimo.specs presence there but this is faster
+                    final File file = Files.toFile(url);
+                    if (file != null)
+                    {
+                        final String filename = file.getName();
+                        if (filename.startsWith("geronimo-") && filename.contains("_spec"))
+                        {
+                            it.remove();
+                        }
+                    }
                 }
             }
         }
@@ -403,6 +412,9 @@ public abstract class AbstractMetaDataDiscovery implements BdaScannerService
         if (beanClassesPerBda == null)
         {
             beanClassesPerBda = new HashMap<>();
+            ClassLoader loader = WebBeansUtil.getCurrentClassLoader();
+            boolean dontSkipNCDFT = !(webBeansContext != null &&
+                    webBeansContext.getOpenWebBeansConfiguration().isSkipNoClassDefFoundErrorTriggers());
 
             for (CdiArchive.FoundClasses foundClasses : archive.classesByUrl().values())
             {
@@ -422,12 +434,15 @@ public abstract class AbstractMetaDataDiscovery implements BdaScannerService
                             }
                         }
 
-                        Class<?> clazz = ClassUtil.getClassFromName(className);
+                        Class<?> clazz = ClassUtil.getClassFromName(className, loader, dontSkipNCDFT);
                         if (clazz != null)
                         {
-                            // try to provoke a NoClassDefFoundError exception which is thrown
-                            // if some dependencies of the class are missing
-                            clazz.getDeclaredFields();
+                            if (dontSkipNCDFT)
+                            {
+                                // try to provoke a NoClassDefFoundError exception which is thrown
+                                // if some dependencies of the class are missing
+                                clazz.getDeclaredFields();
+                            }
 
                             // we can add this class cause it has been loaded completely
                             classSet.add(clazz);
