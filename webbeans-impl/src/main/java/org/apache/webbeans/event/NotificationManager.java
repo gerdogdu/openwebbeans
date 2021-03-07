@@ -33,7 +33,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -46,7 +45,6 @@ import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Stream;
 
 import javax.enterprise.context.RequestScoped;
 import javax.enterprise.event.NotificationOptions;
@@ -99,7 +97,7 @@ import static java.util.Collections.emptyList;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.stream.Collectors.toMap;
 
-public final class NotificationManager
+public class NotificationManager
 {
     private final Map<Type, Set<ObserverMethod<?>>> observers = new ConcurrentHashMap<>();
     private final WebBeansContext webBeansContext;
@@ -152,15 +150,18 @@ public final class NotificationManager
 
     public void afterStart()
     {
-        Stream.of(
-                processAnnotatedTypeObservers, processBeanAttributesObservers,
-                processInjectionTargetObservers, processManagedBeanObservers,
-                processBeanObservers, processInjectionPointObservers,
-                processObserverMethodObservers, processProducerObservers,
-                processProducerFieldObservers, processProducerMethodObservers,
-                processSyntheticBeanObservers, processSyntheticObserverMethodObservers)
-                .filter(Objects::nonNull)
-                .forEach(Map::clear);
+        processAnnotatedTypeObservers = null;
+        processBeanAttributesObservers = null;
+        processInjectionTargetObservers = null;
+        processManagedBeanObservers = null;
+        processBeanObservers = null;
+        processInjectionPointObservers = null;
+        processObserverMethodObservers = null;
+        processProducerObservers = null;
+        processProducerFieldObservers = null;
+        processProducerMethodObservers = null;
+        processSyntheticBeanObservers = null;
+        processSyntheticObserverMethodObservers = null;
     }
 
     private Executor getDefaultExecutor()
@@ -241,10 +242,10 @@ public final class NotificationManager
     {
         if (isLifecycleEvent) // goal here is to skip any resolution if not needed
         {
-            Collection<ObserverMethod<?>> observerMethods = cacheIfNeeded(event);
+            Collection observerMethods = cacheIfNeeded(event);
             if (observerMethods != null) // emptyList()
             {
-                return emptyList();
+                return observerMethods;
             }
         }
         Type eventType = metadata.validatedType();
@@ -1132,7 +1133,6 @@ public final class NotificationManager
     {
         //X TODO set up threads, requestcontext etc
         final ContextsService contextsService = webBeansContext.getContextsService();
-        contextsService.getCurrentContext(RequestScoped.class);
         contextsService.startContext(RequestScoped.class, null);
         try
         {
